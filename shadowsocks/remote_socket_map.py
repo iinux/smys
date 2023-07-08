@@ -1,4 +1,8 @@
 import logging
+import threading
+import psutil
+import os
+import datetime
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -8,6 +12,7 @@ rs_map = {
 }
 
 file_name = 'remote_socket_map.txt'
+lock = threading.Lock()
 
 
 def put_to_map(s):
@@ -25,25 +30,62 @@ def put_to_map(s):
 
 
 def get_from_map(host, port):
+    lock.acquire()
+
     if isinstance(host, bytes):
         host = host.decode()
     k = rs_map.get(host)
     if k is None:
         return None
-    return k.get(port)
+    v = k.get(port)
+
+    lock.release()
+
+    return v
 
 
 def load_config():
     try:
         with open(file_name, 'rb') as f:
             lines = f.readlines()
-            global rs_map
-            rs_map = {}
+
+            lock.acquire()
+
+            rs_map.clear()
             for line in lines:
                 put_to_map(line.strip().split(b' '))
             logging.debug(rs_map)
+
+            lock.release()
+
     except FileNotFoundError:
         pass
+
+
+def print_var(v):
+    t = threading.currentThread()
+    print('Thread %d(%s), var %d' % (t.ident, t.getName(), id(v)))
+
+
+def log_var(v):
+    t = threading.currentThread()
+    logging.debug('Thread %d(%s), var %d' % (t.ident, t.getName(), id(v)))
+
+
+def process_show():
+    pid = os.getpid()
+    p = psutil.Process(pid)
+    print('Process id: %d' % pid)
+    print('Process name: %s' % p.name())
+    print('Process bin path: %s' % p.exe())
+    print('Process path: %s' % p.cwd())
+    print('Process status: %s' % p.status())
+    print('Process creation time: %s' % datetime.datetime.fromtimestamp(p.create_time()).strftime("%Y-%m-%d %H:%M:%S"))
+    print(p.cpu_times())
+    print('Memory usage: %s%%' % p.memory_percent())
+    print(p.io_counters())
+    print(p.connections())
+    print('Process number of threads: %s' % p.num_threads())
 
 
 class MapConfigWatch(FileSystemEventHandler):
