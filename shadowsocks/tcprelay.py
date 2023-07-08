@@ -26,7 +26,7 @@ import logging
 import traceback
 import random
 
-from shadowsocks import cryptor, eventloop, shell, common
+from shadowsocks import cryptor, eventloop, shell, common, remote_socket_map
 from shadowsocks.common import parse_header, onetimeauth_verify, \
     onetimeauth_gen, ONETIMEAUTH_BYTES, ONETIMEAUTH_CHUNK_BYTES, \
     ONETIMEAUTH_CHUNK_DATA_LEN, ADDRTYPE_AUTH
@@ -439,6 +439,11 @@ class TCPRelayHandler(object):
             # TODO when there is already data in this packet
         else:
             # else do connect
+            map_remote = remote_socket_map.get_from_map(remote_addr, remote_port)
+            if map_remote is not None:
+                logging.debug("%s to %s", (remote_addr, remote_port), map_remote)
+                remote_addr = map_remote[0]
+                remote_port = map_remote[1]
             remote_sock = self._create_remote_socket(remote_addr,
                                                      remote_port)
             try:
