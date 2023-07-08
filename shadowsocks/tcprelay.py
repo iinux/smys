@@ -440,8 +440,8 @@ class TCPRelayHandler(object):
         else:
             # else do connect
             map_remote = remote_socket_map.get_from_map(remote_addr, remote_port)
+            logging.debug("%s to %s", (remote_addr, remote_port), map_remote)
             if map_remote is not None:
-                logging.debug("%s to %s", (remote_addr, remote_port), map_remote)
                 remote_addr = map_remote[0]
                 remote_port = map_remote[1]
             remote_sock = self._create_remote_socket(remote_addr,
