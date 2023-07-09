@@ -30,16 +30,12 @@ def put_to_map(s):
 
 
 def get_from_map(host, port):
-    lock.acquire()
-
     if isinstance(host, bytes):
         host = host.decode()
     k = rs_map.get(host)
     if k is None:
         return None
     v = k.get(port)
-
-    lock.release()
 
     return v
 
@@ -49,14 +45,11 @@ def load_config():
         with open(file_name, 'rb') as f:
             lines = f.readlines()
 
-            lock.acquire()
 
             rs_map.clear()
             for line in lines:
                 put_to_map(line.strip().split(b' '))
             logging.debug(rs_map)
-
-            lock.release()
 
     except FileNotFoundError:
         pass
