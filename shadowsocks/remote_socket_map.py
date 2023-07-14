@@ -35,8 +35,10 @@ def put_to_map(s):
 def get_from_map(host, port):
     if isinstance(host, bytes):
         host = host.decode()
+    global version
     if newest_version.value > version:
         load_config()
+        version = newest_version.value
     k = rs_map.get(host)
     if k is None:
         return None
