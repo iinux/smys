@@ -1,5 +1,7 @@
 import logging
+import multiprocessing
 import threading
+import time
 import psutil
 import os
 import datetime
@@ -12,7 +14,8 @@ rs_map = {
 }
 
 file_name = 'remote_socket_map.txt'
-lock = threading.Lock()
+newest_version = multiprocessing.Value('i', 0)
+version = 0
 
 
 def put_to_map(s):
@@ -32,6 +35,8 @@ def put_to_map(s):
 def get_from_map(host, port):
     if isinstance(host, bytes):
         host = host.decode()
+    if newest_version.value > version:
+        load_config()
     k = rs_map.get(host)
     if k is None:
         return None
@@ -44,7 +49,6 @@ def load_config():
     try:
         with open(file_name, 'rb') as f:
             lines = f.readlines()
-
 
             rs_map.clear()
             for line in lines:
@@ -90,10 +94,10 @@ class MapConfigWatch(FileSystemEventHandler):
         if not event.is_directory:
             if event.src_path.endswith('/' + file_name):
                 logging.info(f"File {event.src_path} was modified")
-                load_config()
+                newest_version.value = int(time.time())
 
     def start(self):
-        load_config()
+        newest_version.value = int(time.time())
         # 创建一个观察者对象并指定要监视的目录
         self.observer = Observer()
         path = '.'  # 要监视的目录路径
