@@ -24,7 +24,15 @@ import logging
 import signal
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../'))
-from shadowsocks.remote_socket_map import MapConfigWatch
+
+import_success = True
+
+try:
+    from shadowsocks.remote_socket_map import MapConfigWatch
+except ImportError:
+    import_success = False
+    pass
+
 from shadowsocks import shell, daemon, eventloop, tcprelay, udprelay, \
     asyncdns, manager
 
@@ -75,8 +83,9 @@ def main():
         tcp_servers.append(tcprelay.TCPRelay(a_config, dns_resolver, False))
         udp_servers.append(udprelay.UDPRelay(a_config, dns_resolver, False))
 
-    watch = MapConfigWatch()
-    watch.start()
+    if import_success:
+        watch = MapConfigWatch()
+        watch.start()
 
     def run_server():
         def child_handler(signum, _):

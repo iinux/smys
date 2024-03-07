@@ -2,12 +2,19 @@ import logging
 import multiprocessing
 import threading
 import time
-import psutil
 import os
 import datetime
 
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+import_success = True
+
+try:
+    import psutil
+
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+except ImportError:
+    import_success = False
+    pass
 
 rs_map = {
 
@@ -87,27 +94,28 @@ def process_show():
     print('Process number of threads: %s' % p.num_threads())
 
 
-class MapConfigWatch(FileSystemEventHandler):
+if import_success:
+    class MapConfigWatch(FileSystemEventHandler):
 
-    def __init__(self):
-        self.observer = None
+        def __init__(self):
+            self.observer = None
 
-    def on_modified(self, event):
-        if not event.is_directory:
-            if event.src_path.endswith('/' + file_name):
-                logging.info(f"File {event.src_path} was modified")
-                newest_version.value = int(time.time())
+        def on_modified(self, event):
+            if not event.is_directory:
+                if event.src_path.endswith('/' + file_name):
+                    logging.info(f"File {event.src_path} was modified")
+                    newest_version.value = int(time.time())
 
-    def start(self):
-        newest_version.value = int(time.time())
-        # 创建一个观察者对象并指定要监视的目录
-        self.observer = Observer()
-        path = '.'  # 要监视的目录路径
-        self.observer.schedule(MapConfigWatch(), path, recursive=True)
-        # 启动观察者
-        self.observer.start()
+        def start(self):
+            newest_version.value = int(time.time())
+            # 创建一个观察者对象并指定要监视的目录
+            self.observer = Observer()
+            path = '.'  # 要监视的目录路径
+            self.observer.schedule(MapConfigWatch(), path, recursive=True)
+            # 启动观察者
+            self.observer.start()
 
-    def stop(self):
-        self.observer.stop()
-        # 等待观察者完成处理并释放资源
-        self.observer.join()
+        def stop(self):
+            self.observer.stop()
+            # 等待观察者完成处理并释放资源
+            self.observer.join()
