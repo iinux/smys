@@ -399,30 +399,41 @@ class DNSResolver(object):
                             break
 
     def handle_event(self, sock, fd, event):
-        if sock not in self._sock:
+        if sock not in self._sock and sock != self._only_ipv6_dns_sock:
             return
         if event & eventloop.POLL_ERR:
             logging.error('dns socket err')
 
-            i = self._sock.index(sock)
+            if sock in self._sock:
+                i = self._sock.index(sock)
 
-            is_ipv6 = False
-            if sock.family == socket.AF_INET6:
-                is_ipv6 = True
+                is_ipv6 = False
+                if sock.family == socket.AF_INET6:
+                    is_ipv6 = True
 
-            self._loop.remove(sock)
-            sock.close()
+                self._loop.remove(sock)
+                sock.close()
 
-            if is_ipv6:
-                new_sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
-            else:
-                new_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
-            logging.debug(new_sock)
+                if is_ipv6:
+                    new_sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
+                else:
+                    new_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
+                logging.debug(new_sock)
 
-            new_sock.setblocking(False)
-            self._loop.add(new_sock, eventloop.POLL_IN, self)
+                new_sock.setblocking(False)
+                self._loop.add(new_sock, eventloop.POLL_IN, self)
 
-            self._sock[i] = new_sock
+                self._sock[i] = new_sock
+            elif sock == self._only_ipv6_dns_sock:
+                self._loop.remove(self._only_ipv6_dns_sock)
+                self._only_ipv6_dns_sock.close()
+
+                self._only_ipv6_dns_sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
+                logging.debug(self._only_ipv6_dns_sock)
+                self._only_ipv6_dns_sock.setblocking(False)
+
+                self._loop.add(self._only_ipv6_dns_sock, eventloop.POLL_IN, self)
+
         else:
             data, addr = sock.recvfrom(1024)
             if addr[0] not in self._servers:
@@ -485,13 +496,20 @@ class DNSResolver(object):
                 self._send_req(hostname, self._QTYPES[0])
 
     def close(self):
+        if self._loop:
+            self._loop.remove_periodic(self.handle_periodic)
+
         for sock in self._sock:
             if sock:
                 if self._loop:
-                    self._loop.remove_periodic(self.handle_periodic)
                     self._loop.remove(sock)
                 sock.close()
                 self._sock.remove(sock)
+
+        if self._only_ipv6_dns_sock:
+            if self._loop:
+                self._loop.remove(self._only_ipv6_dns_sock)
+            self._only_ipv6_dns_sock.close()
 
 
 def test():
