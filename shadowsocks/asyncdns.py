@@ -436,7 +436,7 @@ class DNSResolver(object):
 
         else:
             data, addr = sock.recvfrom(1024)
-            if addr[0] not in self._servers:
+            if addr[0] not in self._servers and addr[0] not in self._only_ipv6_dns_server:
                 logging.warn('received a packet other than our dns')
                 return
             self._handle_data(data)
