@@ -223,7 +223,7 @@ def get_config(is_local):
         shortopts = 'hd:s:p:k:m:c:t:vqa'
         longopts = ['help', 'fast-open', 'pid-file=', 'log-file=', 'workers=',
                     'forbidden-ip=', 'user=', 'manager-address=', 'version',
-                    'libopenssl=', 'libmbedtls=', 'libsodium=', 'prefer-ipv6']
+                    'libopenssl=', 'libmbedtls=', 'libsodium=', 'prefer-ipv6', 'only-ipv6']
     try:
         config_path = find_config()
         optlist, args = getopt.getopt(sys.argv[1:], shortopts, longopts)
@@ -301,6 +301,8 @@ def get_config(is_local):
                 config['verbose'] = v_count
             elif key == '--prefer-ipv6':
                 config['prefer_ipv6'] = True
+            elif key == '--only-ipv6':
+                config['only_ipv6'] = True
     except getopt.GetoptError as e:
         print(e, file=sys.stderr)
         print_help(is_local)
@@ -324,6 +326,7 @@ def get_config(is_local):
     config['local_port'] = config.get('local_port', 1080)
     config['one_time_auth'] = config.get('one_time_auth', False)
     config['prefer_ipv6'] = config.get('prefer_ipv6', False)
+    config['only_ipv6'] = config.get('only_ipv6', False)
     config['server_port'] = config.get('server_port', 8388)
     config['dns_server'] = config.get('dns_server', None)
     config['libopenssl'] = config.get('libopenssl', None)
@@ -460,6 +463,7 @@ Proxy options:
   --forbidden-ip=IPLIST  comma seperated IP list forbidden to connect
   --manager-address=ADDR optional server manager UDP address, see wiki
   --prefer-ipv6          resolve ipv6 address first
+  --only-ipv6            only ipv6 address host
   --libopenssl=PATH      custom openssl crypto lib path
   --libmbedtls=PATH      custom mbedtls crypto lib path
   --libsodium=PATH       custom sodium crypto lib path

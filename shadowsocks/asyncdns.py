@@ -248,24 +248,27 @@ STATUS_SECOND = 1
 
 class DNSResolver(object):
 
-    def __init__(self, server_list=None, prefer_ipv6=False):
+    def __init__(self, server_list=None, prefer_ipv6=False, only_ipv6=False):
         self._loop = None
         self._hosts = {}
         self._hostname_status = {}
         self._hostname_to_cb = {}
         self._cb_to_hostname = {}
         self._cache = lru_cache.LRUCache(timeout=300)
-        self._sock = None
-        self._dns_server_is_ipv6 = False
+        self._sock = []
+        self._dns_server_is_ipv6 = []
+        self._only_ipv6_dns_sock = None
+        self._only_ipv6_dns_server = '2001:67c:2b0::4'
         if server_list is None:
             self._servers = None
             self._parse_resolv()
         else:
             self._servers = server_list
-        if prefer_ipv6:
+        if prefer_ipv6 or only_ipv6:
             self._QTYPES = [QTYPE_AAAA, QTYPE_A]
         else:
             self._QTYPES = [QTYPE_A, QTYPE_AAAA]
+        self._only_ipv6 = only_ipv6
         self._parse_hosts()
         # TODO monitor hosts change and reload hosts
         # TODO parse /etc/gai.conf and follow its rules
@@ -290,11 +293,12 @@ class DNSResolver(object):
                         if type(server) != str:
                             server = server.decode('utf8')
                         self._servers.append(server)
+                        self._dns_server_is_ipv6.append(False)
                     elif address_family == socket.AF_INET6:
                         if type(server) != str:
                             server = server.decode('utf8')
                         self._servers.append(server)
-                        self._dns_server_is_ipv6 = True
+                        self._dns_server_is_ipv6.append(True)
                     logging.debug('%s %s %s', address_family, self._servers, self._dns_server_is_ipv6)
         except IOError as e:
             shell.print_exception(e)
@@ -329,14 +333,23 @@ class DNSResolver(object):
             raise Exception('already add to loop')
         self._loop = loop
 
-        if self._dns_server_is_ipv6:
-            self._sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
-        else:
-            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
-        logging.debug(self._sock)
+        for is_ipv6 in self._dns_server_is_ipv6:
+            if is_ipv6:
+                sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
+            else:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
 
-        self._sock.setblocking(False)
-        loop.add(self._sock, eventloop.POLL_IN, self)
+            logging.debug(sock)
+
+            sock.setblocking(False)
+            loop.add(sock, eventloop.POLL_IN, self)
+            self._sock.append(sock)
+
+        self._only_ipv6_dns_sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
+        logging.debug(self._only_ipv6_dns_sock)
+        self._only_ipv6_dns_sock.setblocking(False)
+        loop.add(self._only_ipv6_dns_sock, eventloop.POLL_IN, self)
+
         loop.add_periodic(self.handle_periodic)
 
     def _call_callback(self, hostname, ip, error=None):
@@ -367,7 +380,13 @@ class DNSResolver(object):
             if not ip and self._hostname_status.get(hostname, STATUS_SECOND) \
                     == STATUS_FIRST:
                 self._hostname_status[hostname] = STATUS_SECOND
-                self._send_req(hostname, self._QTYPES[1])
+                if self._only_ipv6:
+                    req = build_request(hostname, QTYPE_AAAA)
+                    logging.debug('resolving %s with type %d using server %s %s',
+                                  hostname, QTYPE_AAAA, self._only_ipv6_dns_server, self._only_ipv6_dns_sock)
+                    self._only_ipv6_dns_sock.sendto(req, (self._only_ipv6_dns_server, 53))
+                else:
+                    self._send_req(hostname, self._QTYPES[1])
             else:
                 if ip:
                     self._cache[hostname] = ip
@@ -380,21 +399,30 @@ class DNSResolver(object):
                             break
 
     def handle_event(self, sock, fd, event):
-        if sock != self._sock:
+        if sock not in self._sock:
             return
         if event & eventloop.POLL_ERR:
             logging.error('dns socket err')
-            self._loop.remove(self._sock)
-            self._sock.close()
 
-            if self._dns_server_is_ipv6:
-                self._sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
+            i = self._sock.index(sock)
+
+            is_ipv6 = False
+            if sock.family == socket.AF_INET6:
+                is_ipv6 = True
+
+            self._loop.remove(sock)
+            sock.close()
+
+            if is_ipv6:
+                new_sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.SOL_UDP)
             else:
-                self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
-            logging.debug(self._sock)
+                new_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.SOL_UDP)
+            logging.debug(new_sock)
 
-            self._sock.setblocking(False)
-            self._loop.add(self._sock, eventloop.POLL_IN, self)
+            new_sock.setblocking(False)
+            self._loop.add(new_sock, eventloop.POLL_IN, self)
+
+            self._sock[i] = new_sock
         else:
             data, addr = sock.recvfrom(1024)
             if addr[0] not in self._servers:
@@ -419,10 +447,12 @@ class DNSResolver(object):
 
     def _send_req(self, hostname, qtype):
         req = build_request(hostname, qtype)
+        i = 0
         for server in self._servers:
             logging.debug('resolving %s with type %d using server %s %s',
-                          hostname, qtype, server, self._sock)
-            self._sock.sendto(req, (server, 53))
+                          hostname, qtype, server, self._sock[i])
+            self._sock[i].sendto(req, (server, 53))
+            i += 1
 
     def resolve(self, hostname, callback):
         if type(hostname) != bytes:
@@ -455,12 +485,13 @@ class DNSResolver(object):
                 self._send_req(hostname, self._QTYPES[0])
 
     def close(self):
-        if self._sock:
-            if self._loop:
-                self._loop.remove_periodic(self.handle_periodic)
-                self._loop.remove(self._sock)
-            self._sock.close()
-            self._sock = None
+        for sock in self._sock:
+            if sock:
+                if self._loop:
+                    self._loop.remove_periodic(self.handle_periodic)
+                    self._loop.remove(sock)
+                sock.close()
+                self._sock.remove(sock)
 
 
 def test():
